@@ -28,21 +28,26 @@ func TestNewSwitchConnect(t *testing.T) {
 		t.Error("Switch对象初始化失败")
 	}
 	println(sw.OutLog)
+	output, _ := sw.RunCommands("dis power", "dis cu")
+	println(output)
+
+	println(sw.OutLog)
+
 	//output := sw.readChannel(time.Second * 5, ">", "]")
+	//fmt.Println(output)
 	//output := sw.ReadChannelExpect(time.Second * 5, ">", "]")
 
-	temp := <-sw.outChan
-	println(temp)
+	//temp := <-sw.outChan
+	//println(temp)
 
 }
 
-//// 测试生成Switch对象功能
-//func TestNewSwitchConnectPasswordError(t *testing.T) {
-//    sw, err := NewSwitchConnect("10.138.152.205", "22", "admin", "G63__")
-//
-//    if err != nil {
-//        t.Error("Switch对象初始化失败")
-//    }
-//
-//    t.Log(sw)
-//}
+// 测试生成Switch对象功能
+func TestNewSwitchConnectPasswordError(t *testing.T) {
+	_, err := NewSwitchConnect("10.138.152.205", "22", "admin", "G63__")
+
+	if err != nil {
+		t.Error("Switch对象初始化失败")
+	}
+
+}

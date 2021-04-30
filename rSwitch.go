@@ -23,11 +23,18 @@ type Switch struct {
 // NewSwitchConnect 创建新会话
 func NewSwitchConnect(ip, port, username, password string) (*Switch, error) {
 	LogDebug("<NewSwitchConnect()>[begin]设备连接成功")
-	sw := new(Switch)
-	sw.ip = ip
-	sw.port = port
-	sw.username = username
-	sw.password = password
+	//sw := new(Switch)
+	//sw.ip = ip
+	//sw.port = port
+	//sw.username = username
+	//sw.password = password
+
+	sw := Switch{
+		ip:       ip,
+		port:     port,
+		username: username,
+		password: password,
+	}
 
 	// 创建客户端会话
 	if err := sw.createClientSession(); err != nil {
@@ -47,10 +54,16 @@ func NewSwitchConnect(ip, port, username, password string) (*Switch, error) {
 		return nil, err
 	}
 
+	// 取消回显分页
+	if err := sw.setScreenLength(); err != nil {
+		LogError("startShell()>取消回显分页失败.%s", err.Error())
+		return nil, err
+	}
+
 	sw.lastUseTime = time.Now() //修改设备登录时间
 	LogDebug("<NewSwitchConnect()>[end]设备连接成功")
 
-	return sw, nil
+	return &sw, nil
 
 }
 
@@ -62,6 +75,14 @@ func NewSwitchConnect(ip, port, username, password string) (*Switch, error) {
 func (sw *Switch) createClientSession() error {
 	LogDebug("<createClientSession()>[begin]初始化设备参数.([new] config ssh.ClientConfig)")
 	config := ssh.ClientConfig{
+		User: sw.username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(sw.password),
+		},
+		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+			return nil
+		},
+		Timeout: 20 * time.Second,
 		Config: ssh.Config{
 			Ciphers: []string{"aes128-ctr", "aes192-ctr", "aes256-ctr", "aes128-gcm@openssh.com",
 				"arcfour256", "arcfour128", "aes128-cbc", "aes256-cbc", "3des-cbc", "des-cbc",
@@ -71,18 +92,10 @@ func (sw *Switch) createClientSession() error {
 				"diffie-hellman-group-exchange-sha256",
 			},
 		},
-		User: sw.username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(sw.password),
-		},
-
-		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			return nil
-		},
-		Timeout: 20 * time.Second,
 	}
 	LogDebug("<createClientSession()>[end]初始化设备参数.([new] config ssh.ClientConfig)")
 
+	// 创建客户端
 	LogDebug("<createClientSession()>[begin]创建并配置客户端.([new] client ssh.Dial())")
 	client, err := ssh.Dial("tcp", sw.ip+":"+sw.port, &config)
 	if err != nil {
@@ -92,6 +105,7 @@ func (sw *Switch) createClientSession() error {
 	}
 	LogDebug("<createClientSession()>[end]创建并配置客户端成功.([new] client ssh.Dial())")
 
+	// 创建会话
 	LogDebug("<createClientSession()>[begin]客户端建立新会话.([new] Session client.NewSession())")
 	session, err := client.NewSession()
 	if err != nil {
@@ -105,7 +119,7 @@ func (sw *Switch) createClientSession() error {
 }
 
 // 客户端会话绑定远程连接，初始化输入&接收管道
-func (sw Switch) connectPty() error {
+func (sw *Switch) connectPty() error {
 	LogDebug("<connectVty()>[begin]绑定远程连接 初始化输入、输出管道.")
 	defer func() {
 		if err := recover(); err != nil {
@@ -197,7 +211,7 @@ func (sw Switch) connectPty() error {
 }
 
 // 连接远程设备
-func (sw Switch) startShell() error {
+func (sw *Switch) startShell() error {
 	LogDebug("<start()>[begin]连接设备.")
 	if err := sw.session.Shell(); err != nil {
 		LogError("<start()>[error]连接设备失败.%s", err.Error())
@@ -205,12 +219,21 @@ func (sw Switch) startShell() error {
 	}
 	LogDebug("<start()>[end]连接成功.")
 	sw.readChannel(time.Second*5, ">", "]")
+	return nil
+}
+
+// 取消回显分页
+func (sw *Switch) setScreenLength() error {
+	_, err := sw.RunCommands("screen-length 0 temporary")
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
 // 读取接收管道内容
-func (sw Switch) readChannel(timeout time.Duration, expects ...string) string {
+func (sw *Switch) readChannel(timeout time.Duration, expects ...string) string {
 	LogDebug("<readChannel()>[begin]读取管道内数据.")
 	output := ""
 	littleSleep := time.Millisecond * 10
@@ -250,21 +273,35 @@ getNowData:
 		}
 	}
 	sw.OutLog += output
-	LogDebug(output)
-	LogDebug(sw.OutLog)
 	return output
 }
 
 // 写入通道内容
-func (sw Switch) writeChannel(cmds ...string) ([]string, error) {
-	outoutList := make([]string, 1)
+func (sw *Switch) writeChannel(cmds ...string) ([]string, error) {
+	outputList := make([]string, 1)
 	LogDebug("<writeChannel()>[begin]cmds:%v", cmds)
 	for _, cmd := range cmds {
-		println(cmd)
 		sw.inChan <- cmd
-		println(cmd)
 		output := sw.readChannel(time.Second*5, ">", "]")
-		outoutList = append(outoutList, output)
+		outputList = append(outputList, output)
 	}
-	return outoutList, nil
+	return outputList, nil
+}
+
+// RunCommands 批量下发命令
+func (sw *Switch) RunCommands(cmds ...string) (string, error) {
+	outputList, err := sw.writeChannel(cmds...)
+
+	if err != nil {
+		LogError("命令执行错误")
+		return "", err
+
+	}
+
+	output := ""
+	for _, tempStr := range outputList {
+		output += tempStr
+	}
+
+	return output, err
 }
