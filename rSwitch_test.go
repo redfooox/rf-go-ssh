@@ -21,13 +21,13 @@ func TestSwitch(t *testing.T) {
 
 // 测试生成Switch对象功能
 func TestNewSwitchConnect(t *testing.T) {
-	IsDebug = true
-	sw, err := NewSwitchConnect("10.138.152.205", "22", "admin", "G63__Paq")
+	//IsDebug = true
+	sw, err := NewSwitchConnect("10.138.152.205", "22", "admin", "huawei@123")
 
 	if err != nil {
 		t.Error("Switch对象初始化失败")
 	}
-	println(sw.OutLog)
+	//println(sw.OutLog)
 	output, _ := sw.RunCommands("dis power", "dis cu")
 	println(output)
 

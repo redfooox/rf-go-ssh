@@ -1,11 +1,49 @@
 package rSwitch
 
 import (
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
+	"io"
 	"net"
+	"os"
 	"strings"
 	"time"
 )
+
+func (sw *Switch) init() {
+	// 初始化日志文件夹
+	path := "log/" + time.Now().Format("2006-01-02")
+	err := os.MkdirAll(path, 777)
+	if err != nil {
+		// 初始化目录失败
+		println("初始化目录失败")
+	} else {
+		println(path, "[log/<time>]已存在/创建成功")
+	}
+
+	logFile, err := os.OpenFile("log/r.log",
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalln("打开日志文件失败:", err)
+	}
+
+	sw.Logger = log.New()
+
+	// 设置将日志输出到标准输出（默认的输出为stderr，标准错误）
+	// 日志消息输出可以是任意的io.writer类型
+	sw.Logger.SetOutput(io.MultiWriter(logFile, os.Stdout))
+	// 设置日志级别为warn以上
+	sw.Logger.SetLevel(log.WarnLevel)
+	//sw.Logger.SetLevel(log.DebugLevel)
+	// 为当前logrus实例设置消息输出格式为text格式。
+	// 同样地，也可以单独为某个logrus实例设置日志级别和hook，这里不详细叙述。
+	sw.Logger.Formatter = &log.TextFormatter{}
+
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Error("test")
+}
 
 type Switch struct {
 	ip          string       // 设备IP地址
@@ -18,16 +56,12 @@ type Switch struct {
 	outChan     chan string  // 输出通道
 	lastUseTime time.Time    // 连接时间
 	OutLog      string       // 输出交互内容
+	Logger      *log.Logger  // 日志记录
 }
 
 // NewSwitchConnect 创建新会话
 func NewSwitchConnect(ip, port, username, password string) (*Switch, error) {
-	LogDebug("<NewSwitchConnect()>[begin]设备连接成功")
-	//sw := new(Switch)
-	//sw.ip = ip
-	//sw.port = port
-	//sw.username = username
-	//sw.password = password
+	log.Println("<NewSwitchConnect()>[begin]设备连接成功")
 
 	sw := Switch{
 		ip:       ip,
@@ -35,33 +69,54 @@ func NewSwitchConnect(ip, port, username, password string) (*Switch, error) {
 		username: username,
 		password: password,
 	}
+	// 初始化日志等
+	sw.init()
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Error("这是一个错误")
 
 	// 创建客户端会话
 	if err := sw.createClientSession(); err != nil {
-		LogError("<createClientSession()>创建客户端会话失败.%s", err.Error())
+		sw.Logger.WithFields(log.Fields{
+			"ip":       sw.ip,
+			"username": sw.username,
+		}).Errorf("<createClientSession()>创建客户端会话失败.%s", err.Error())
 		return nil, err
 	}
 
 	// 绑定pty连接，初始化管道
 	if err := sw.connectPty(); err != nil {
-		LogError("<connectPty()>pty、管道绑定失败.%s", err.Error())
+		sw.Logger.WithFields(log.Fields{
+			"ip":       sw.ip,
+			"username": sw.username,
+		}).Printf("<connectPty()>pty、管道绑定失败.%s", err.Error())
 		return nil, err
 	}
 
 	// 连接设备
 	if err := sw.startShell(); err != nil {
-		LogError("startShell()>连接远端设备失败.%s", err.Error())
+		sw.Logger.WithFields(log.Fields{
+			"ip":       sw.ip,
+			"username": sw.username,
+		}).Printf("startShell()>连接远端设备失败.%s", err.Error())
 		return nil, err
 	}
 
 	// 取消回显分页
 	if err := sw.setScreenLength(); err != nil {
-		LogError("startShell()>取消回显分页失败.%s", err.Error())
+		sw.Logger.WithFields(log.Fields{
+			"ip":       sw.ip,
+			"username": sw.username,
+		}).Printf("startShell()>取消回显分页失败.%s", err.Error())
 		return nil, err
 	}
 
 	sw.lastUseTime = time.Now() //修改设备登录时间
-	LogDebug("<NewSwitchConnect()>[end]设备连接成功")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Println("<NewSwitchConnect()>[end]设备连接成功")
 
 	return &sw, nil
 
@@ -73,7 +128,10 @@ func NewSwitchConnect(ip, port, username, password string) (*Switch, error) {
 @return 执行错误
 */
 func (sw *Switch) createClientSession() error {
-	LogDebug("<createClientSession()>[begin]初始化设备参数.([new] config ssh.ClientConfig)")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<createClientSession()>[begin]初始化设备参数.([new] config ssh.ClientConfig)")
 	config := ssh.ClientConfig{
 		User: sw.username,
 		Auth: []ssh.AuthMethod{
@@ -93,26 +151,47 @@ func (sw *Switch) createClientSession() error {
 			},
 		},
 	}
-	LogDebug("<createClientSession()>[end]初始化设备参数.([new] config ssh.ClientConfig)")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<createClientSession()>[end]初始化设备参数.([new] config ssh.ClientConfig)")
 
 	// 创建客户端
-	LogDebug("<createClientSession()>[begin]创建并配置客户端.([new] client ssh.Dial())")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<createClientSession()>[begin]创建并配置客户端.([new] client ssh.Dial())")
 	client, err := ssh.Dial("tcp", sw.ip+":"+sw.port, &config)
 	if err != nil {
-		LogError("createClientSession()>[error]创建客户端失败.%s", err.Error())
+		sw.Logger.WithFields(log.Fields{
+			"ip":       sw.ip,
+			"username": sw.username,
+		}).Errorf("createClientSession()>[error]创建客户端失败.%s", err.Error())
 		return err
 
 	}
-	LogDebug("<createClientSession()>[end]创建并配置客户端成功.([new] client ssh.Dial())")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<createClientSession()>[end]创建并配置客户端成功.([new] client ssh.Dial())")
 
 	// 创建会话
-	LogDebug("<createClientSession()>[begin]客户端建立新会话.([new] Session client.NewSession())")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<createClientSession()>[begin]客户端建立新会话.([new] Session client.NewSession())")
 	session, err := client.NewSession()
 	if err != nil {
-		LogError("createClientSession()>[error]创建会话失败.%s", err.Error())
+		sw.Logger.WithFields(log.Fields{
+			"ip":       sw.ip,
+			"username": sw.username,
+		}).Errorf("createClientSession()>[error]创建会话失败.%s", err.Error())
 		return err
 	}
-	LogDebug("<createClientSession()>[end]客户端建立新会话成功.([new] Session client.NewSession())")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<createClientSession()>[end]客户端建立新会话成功.([new] Session client.NewSession())")
 	sw.session = session
 
 	return nil
@@ -120,10 +199,16 @@ func (sw *Switch) createClientSession() error {
 
 // 客户端会话绑定远程连接，初始化输入&接收管道
 func (sw *Switch) connectPty() error {
-	LogDebug("<connectVty()>[begin]绑定远程连接 初始化输入、输出管道.")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<connectVty()>[begin]绑定远程连接 初始化输入、输出管道.")
 	defer func() {
 		if err := recover(); err != nil {
-			LogError("SSHSession muxShell err:%s", err)
+			sw.Logger.WithFields(log.Fields{
+				"ip":       sw.ip,
+				"username": sw.username,
+			}).Errorf("SSHSession muxShell err:%s", err)
 		}
 	}()
 
@@ -134,26 +219,53 @@ func (sw *Switch) connectPty() error {
 		ssh.TTY_OP_OSPEED: 14400, // output speed = 14.4k baud
 	}
 
-	LogDebug("<connectVty()>[begin]远程会话连接.([run] Session session.RequestPty())")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<connectVty()>[begin]远程会话连接.([run] Session session.RequestPty())")
 	if err := sw.session.RequestPty("vt100", 80, 40, modes); err != nil {
-		LogError("<connectVty()>[error]远程会话连接失败.([run] Session session.RequestPty())")
+		sw.Logger.WithFields(log.Fields{
+			"ip":       sw.ip,
+			"username": sw.username,
+		}).Errorf("<connectVty()>[error]远程会话连接失败.([run] Session session.RequestPty())")
 		return err
 	}
-	LogDebug("<connectVty()>[end]远程会话成功.([run] Session session.RequestPty())")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<connectVty()>[end]远程会话成功.([run] Session session.RequestPty())")
 
-	LogDebug("<connectVty()>[begin]初始化输入管道.([run]session.StdinPipe())")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<connectVty()>[begin]初始化输入管道.([run]session.StdinPipe())")
 	write, err := sw.session.StdinPipe()
 	if err != nil {
-		LogDebug("<connectVty()>[error]初始化输入管道.([run]session.StdinPipe())")
+		sw.Logger.WithFields(log.Fields{
+			"ip":       sw.ip,
+			"username": sw.username,
+		}).Debug("<connectVty()>[error]初始化输入管道.([run]session.StdinPipe())")
 	}
-	LogDebug("<connectVty()>[end]初始化输入管道.([run]session.StdinPipe())")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<connectVty()>[end]初始化输入管道.([run]session.StdinPipe())")
 
-	LogDebug("<connectVty()>[begin]初始化接收管道.([run]session.StdoutPipe())")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<connectVty()>[begin]初始化接收管道.([run]session.StdoutPipe())")
 	read, err := sw.session.StdoutPipe()
 	if err != nil {
-		LogDebug("<connectVty()>[error]初始化接收管道.([run]session.StdoutPipe())")
+		sw.Logger.WithFields(log.Fields{
+			"ip":       sw.ip,
+			"username": sw.username,
+		}).Debug("<connectVty()>[error]初始化接收管道.([run]session.StdoutPipe())")
 	}
-	LogDebug("<connectVty()>[end]初始化接收管道.([run]session.StdoutPipe())")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<connectVty()>[end]初始化接收管道.([run]session.StdoutPipe())")
 
 	// 初始化带缓存的 输入接收通道
 	//inChan := make(chan string, 1024)
@@ -167,13 +279,19 @@ func (sw *Switch) connectPty() error {
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
-				LogError("<connectVty()>[error]远程会话pty写入失败.%s", err)
+				sw.Logger.WithFields(log.Fields{
+					"ip":       sw.ip,
+					"username": sw.username,
+				}).Errorf("<connectVty()>[error]远程会话pty写入失败.%s", err)
 			}
 		}()
 		for cmd := range sw.inChan {
 			_, err := write.Write([]byte(cmd + "\n"))
 			if err != nil {
-				LogDebug("<connectVty()>[error]远程会话pty写入失败.%s", err.Error())
+				sw.Logger.WithFields(log.Fields{
+					"ip":       sw.ip,
+					"username": sw.username,
+				}).Debugf("<connectVty()>[error]远程会话pty写入失败.%s", err.Error())
 				return
 			}
 		}
@@ -183,7 +301,10 @@ func (sw *Switch) connectPty() error {
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
-				LogDebug("<connectVty()>[error]远程会话pty读取失败.%s", err)
+				sw.Logger.WithFields(log.Fields{
+					"ip":       sw.ip,
+					"username": sw.username,
+				}).Debugf("<connectVty()>[error]远程会话pty读取失败.%s", err)
 			}
 		}()
 		var (
@@ -193,7 +314,10 @@ func (sw *Switch) connectPty() error {
 		for {
 			n, err := read.Read(buf[t:])
 			if err != nil {
-				LogDebug("<connectVty()>[error]远程会话pty读取失败.%s", err.Error())
+				sw.Logger.WithFields(log.Fields{
+					"ip":       sw.ip,
+					"username": sw.username,
+				}).Debugf("<connectVty()>[error]远程会话pty读取失败.%s", err.Error())
 				return
 			}
 			t += n
@@ -205,19 +329,31 @@ func (sw *Switch) connectPty() error {
 	//sw.inChan = inChan
 	//sw.outChan = outChan
 
-	LogDebug("<connectVty()>[end]绑定远程连接 初始化输入、输出管道成功.")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<connectVty()>[end]绑定远程连接 初始化输入、输出管道成功.")
 	return nil
 
 }
 
 // 连接远程设备
 func (sw *Switch) startShell() error {
-	LogDebug("<start()>[begin]连接设备.")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<start()>[begin]连接设备.")
 	if err := sw.session.Shell(); err != nil {
-		LogError("<start()>[error]连接设备失败.%s", err.Error())
+		sw.Logger.WithFields(log.Fields{
+			"ip":       sw.ip,
+			"username": sw.username,
+		}).Errorf("<start()>[error]连接设备失败.%s", err.Error())
 		return err
 	}
-	LogDebug("<start()>[end]连接成功.")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<start()>[end]连接成功.")
 	sw.readChannel(time.Second*5, ">", "]")
 	return nil
 }
@@ -234,14 +370,20 @@ func (sw *Switch) setScreenLength() error {
 
 // 读取接收管道内容
 func (sw *Switch) readChannel(timeout time.Duration, expects ...string) string {
-	LogDebug("<readChannel()>[begin]读取管道内数据.")
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debug("<readChannel()>[begin]读取管道内数据.")
 	output := ""
 	littleSleep := time.Millisecond * 10
 	tempTimes := time.Millisecond // 睡的次数
 
 getNowData:
 	for {
-		LogDebug("<readChannel()>[sleep]等待10毫秒")
+		sw.Logger.WithFields(log.Fields{
+			"ip":       sw.ip,
+			"username": sw.username,
+		}).Debug("<readChannel()>[sleep]等待10毫秒")
 		time.Sleep(littleSleep) // 睡10毫秒
 		tempTimes += littleSleep
 		//当前通道内容
@@ -249,7 +391,10 @@ getNowData:
 		case newData, ok := <-sw.outChan:
 			if !ok {
 				// 通道关闭停止读取
-				LogDebug("<readChannel()>[end|error]接收通道关闭")
+				sw.Logger.WithFields(log.Fields{
+					"ip":       sw.ip,
+					"username": sw.username,
+				}).Debug("<readChannel()>[end|error]接收通道关闭")
 				sw.OutLog += output
 				return output
 			}
@@ -258,14 +403,20 @@ getNowData:
 		default:
 			// 判断是否超时
 			if tempTimes > timeout {
-				LogDebug("<readChannel()>[end|timeout]读取管道内数据成功.")
+				sw.Logger.WithFields(log.Fields{
+					"ip":       sw.ip,
+					"username": sw.username,
+				}).Debug("<readChannel()>[end|timeout]读取管道内数据成功.")
 				break getNowData
 
 			}
 			// 判断结尾字符是否符合要求
 			for _, expect := range expects {
 				if strings.Contains(output, expect) {
-					LogDebug("<readChannel()>[end|success]读取管道内数据成功.")
+					sw.Logger.WithFields(log.Fields{
+						"ip":       sw.ip,
+						"username": sw.username,
+					}).Debug("<readChannel()>[end|success]读取管道内数据成功.")
 					break getNowData
 				}
 				continue
@@ -279,7 +430,10 @@ getNowData:
 // 写入通道内容
 func (sw *Switch) writeChannel(cmds ...string) ([]string, error) {
 	outputList := make([]string, 1)
-	LogDebug("<writeChannel()>[begin]cmds:%v", cmds)
+	sw.Logger.WithFields(log.Fields{
+		"ip":       sw.ip,
+		"username": sw.username,
+	}).Debugf("<writeChannel()>[begin]cmds:%v", cmds)
 	for _, cmd := range cmds {
 		sw.inChan <- cmd
 		output := sw.readChannel(time.Second*5, ">", "]")
@@ -293,7 +447,10 @@ func (sw *Switch) RunCommands(cmds ...string) (string, error) {
 	outputList, err := sw.writeChannel(cmds...)
 
 	if err != nil {
-		LogError("命令执行错误")
+		sw.Logger.WithFields(log.Fields{
+			"ip":       sw.ip,
+			"username": sw.username,
+		}).Error("命令执行错误")
 		return "", err
 
 	}
