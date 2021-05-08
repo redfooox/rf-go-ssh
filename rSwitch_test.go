@@ -1,7 +1,6 @@
 package rSwitch
 
 import (
-	"fmt"
 	"testing"
 	"time"
 )
@@ -56,17 +55,7 @@ func TestNewGoSwitchRunCommands(t *testing.T) {
 		{"ip": "10.138.152.205", "port": "22", "username": "admin", "password": "huawei@123", "cmds": "dis int d"},
 	}
 	for _, switchInfo := range switchsInfo {
-		wg.Add(1)
-
-		go func(switchInfo map[string]string) {
-
-			_, err := NewGoSwitchRunCommands(switchInfo["ip"], switchInfo["port"], switchInfo["username"], switchInfo["password"], switchInfo["cmds"])
-			//_,err := NewGoSwitchRunCommands(ip, port, username,password, cmds...)
-
-			if err != nil {
-				fmt.Println(err.Error())
-			}
-		}(switchInfo)
+		GoSwitchRunCommands(switchInfo, switchInfo["cmds"], switchInfo["cmds"])
 	}
 	wg.Wait() // 阻塞至所有线程执行完毕
 
