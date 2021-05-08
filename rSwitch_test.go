@@ -1,7 +1,6 @@
 package rSwitch
 
 import (
-	"github.com/sirupsen/logrus"
 	"testing"
 	"time"
 )
@@ -22,23 +21,19 @@ func TestSwitch(t *testing.T) {
 
 // 测试生成Switch对象功能
 func TestNewSwitchConnect(t *testing.T) {
-	WorkMode = logrus.DebugLevel
+	//WorkMode = logrus.DebugLevel
 	sw, err := NewSwitchConnect("10.138.152.205", "22", "admin", "huawei@123")
 	if err != nil {
-		t.Error("Switch对象初始化失败")
+		t.Log(err)
+		t.Log(err.Error())
+		//t.Error("Switch对象初始化失败")
+		return
 	}
 	//println(sw.OutLog)
-	output, _ := sw.RunCommands("dis power", "dis cu")
-	println(output)
-
-	println(sw.OutLog)
-
-	//output := sw.readChannel(time.Second * 5, ">", "]")
-	//fmt.Println(output)
-	//output := sw.ReadChannelExpect(time.Second * 5, ">", "]")
-
-	//temp := <-sw.outChan
-	//println(temp)
+	_, output, _ := sw.RunCommands("dis power", "dis cu")
+	t.Log(len(output))
+	//t.Log(output[2])
+	//t.Log(output)
 
 }
 

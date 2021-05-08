@@ -1,6 +1,8 @@
 package rSwitch
 
 import (
+	"errors"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 	"io"
@@ -37,6 +39,7 @@ func (sw *Switch) init() {
 	logFields = log.Fields{
 		"ip":       sw.ip,
 		"username": sw.username,
+		"uuid":     uuid.NewString(),
 	}
 
 	// 设置将日志输出到标准输出（默认的输出为stderr，标准错误）
@@ -109,8 +112,6 @@ func NewSwitchConnect(ip, port, username, password string) (*Switch, error) {
 
 	sw.lastUseTime = time.Now() //修改设备登录时间
 	sw.Logger.WithFields(logFields).Info("[end|success]设备连接")
-
-	sw.Logger.WithFields(logFields).Info("设备连接成功")
 
 	return &sw, nil
 
@@ -267,13 +268,16 @@ func (sw *Switch) startShell() error {
 		return err
 	}
 	sw.Logger.WithFields(logFields).Debug("[end|success]连接成功.")
-	sw.readChannel(time.Second*5, ">", "]")
+	_, err := sw.readChannel(time.Second*5, ">", "]")
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
 // 取消回显分页
 func (sw *Switch) setScreenLength() error {
-	_, err := sw.RunCommands("screen-length 0 temporary")
+	_, _, err := sw.RunCommands("screen-length 0 temporary")
 	if err != nil {
 		sw.Logger.WithFields(logFields).Errorf("取消回显失败.%s", err.Error())
 		return err
@@ -283,38 +287,46 @@ func (sw *Switch) setScreenLength() error {
 }
 
 // 读取接收管道内容
-func (sw *Switch) readChannel(timeout time.Duration, expects ...string) string {
+func (sw *Switch) readChannel(timeout time.Duration, expects ...string) (string, error) {
 	sw.Logger.WithFields(logFields).Debug("[begin]读取管道内数据.")
 	output := ""
 	littleSleep := time.Millisecond * 10
-	tempTimes := time.Millisecond // 睡的次数
+	tempTimes := time.Millisecond // 睡的总时长
 
+	var err error
 getNowData:
 	for {
 		sw.Logger.WithFields(logFields).Debug("[sleep]等待10毫秒")
 		time.Sleep(littleSleep) // 睡10毫秒
-		tempTimes += littleSleep
 		//当前通道内容
 		select {
 		case newData, ok := <-sw.outChan:
+			sw.Logger.WithFields(logFields).Debug("通道内有数据，取通道内数据")
 			if !ok {
 				// 通道关闭停止读取
 				sw.Logger.WithFields(logFields).Debug("[end|error]接收通道关闭")
 				sw.OutLog += output
-				return output
+				return output, errors.New("[end|error]接收通道已关闭")
 			}
 			output += newData
 
 		default:
 			// 判断是否超时
 			if tempTimes > timeout {
-				sw.Logger.WithFields(logFields).Debug("[end|timeout]读取管道内数据成功.")
+				err = errors.New("读取超时")
+				sw.Logger.WithFields(logFields).Debug("[end|timeout]读取管道内数数据超时.")
 				break getNowData
+			} else {
+				sw.Logger.WithFields(logFields).Debug("未超时，重试10毫秒")
+				time.Sleep(littleSleep) // 睡10毫秒
+				tempTimes += littleSleep
 
 			}
 			// 判断结尾字符是否符合要求
+
 			for _, expect := range expects {
-				if strings.Contains(output, expect) {
+				if strings.HasSuffix(output, expect) {
+					err = nil
 					sw.Logger.WithFields(logFields).Debug("[end|success]读取管道内数据成功.")
 					break getNowData
 				}
@@ -323,28 +335,32 @@ getNowData:
 		}
 	}
 	sw.OutLog += output
-	return output
+	return output, err
 }
 
 // 写入通道内容
 func (sw *Switch) writeChannel(cmds ...string) ([]string, error) {
-	outputList := make([]string, 1)
+	var outputList []string
 	sw.Logger.WithFields(logFields).Debugf("[begin]执行命令:%v", cmds)
 	for _, cmd := range cmds {
+		sw.Logger.WithFields(logFields).WithFields(log.Fields{"cmds": cmd}).Info("执行命令")
 		sw.inChan <- cmd
-		output := sw.readChannel(time.Second*5, ">", "]")
+		output, err := sw.readChannel(time.Second*5, ">", "]")
 		outputList = append(outputList, output)
+		if err != nil {
+			return outputList, err
+		}
 	}
 	return outputList, nil
 }
 
 // RunCommands 批量下发命令
-func (sw *Switch) RunCommands(cmds ...string) (string, error) {
+func (sw *Switch) RunCommands(cmds ...string) (string, []string, error) {
 	outputList, err := sw.writeChannel(cmds...)
 
 	if err != nil {
 		sw.Logger.WithFields(logFields).Error("命令执行错误")
-		return "", err
+		return "", []string{}, err
 	}
 
 	output := ""
@@ -359,26 +375,26 @@ func (sw *Switch) RunCommands(cmds ...string) (string, error) {
 
 	}
 
-	return output, err
+	return output, outputList, err
 }
 
 func (sw *Switch) saveLogToFile() error {
-	sw.Logger.WithFields(logFields).Debug("[begin]保存至文件")
 	path := "log/" + workTime.Format("2006-01-02")
 	//fileName := path + "/" + workTime.Format("2006-01-02-150405") + sw.ip + ".log"
 	fileName := path + "/" + sw.ip + "_" + workTime.Format("2006-01-02-150405") + ".log"
+	sw.Logger.WithFields(logFields).WithField("filename", fileName).Info("保存至文件")
 	tempFile, err := os.OpenFile(fileName,
 		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		sw.Logger.WithFields(logFields).Errorf("[end|error]日志文件打开失败.%s", err)
 		return err
 	}
-	defer tempFile.Close()
+	//defer tempFile.Close()
 	_, err = tempFile.WriteString(sw.OutLog)
 	if err != nil {
 		sw.Logger.WithFields(logFields).Errorf("[end|error]日志文件写入失败")
 		return err
 	}
-
+	sw.Logger.WithFields(logFields).Debug("[end|success]日志保存成功")
 	return nil
 }

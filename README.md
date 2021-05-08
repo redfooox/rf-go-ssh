@@ -10,16 +10,17 @@
 
 ```go
 type Switch struct{
-ip string       // 设备IP地址
-port string     // 交换机端口
-username string // 登录设备用户名
-password string // 登录设备密码
-cmds []string   // 执行命令
-session *ssh.Session // 设备连接会话
-inChan chan string   // 输入通道
-outChan chan string   // 输出通道
-lastUseTime time.Time // 连接时间
-outLog string         // 输出	
+ip          string // 设备IP地址
+port        string // 交换机端口
+username    string // 登录设备用户名
+password    string   // 登录设备密码
+cmds        []string // 执行命令
+session     *ssh.Session // 设备连接会话
+inChan      chan string  // 输入通道
+outChan     chan string  // 输出通道
+lastUseTime time.Time    // 连接时间
+OutLog      string       // 输出交互内容
+Logger      *log.Logger // 日志记录
 }
 ```
 
@@ -35,6 +36,14 @@ func NewSwitchConnect(ip, port, username, password string, )
 
 初始化`Switch`，创建与交换机的连接
 
-参考
+---
 
-+ https://www.cnblogs.com/you-men/p/13934845.html
+### `Switch.RunCommands(cmds ...string) (string, []string, error)`
+
+初始化
+
+## 相关开源包
+
+[uuid](https://github.com/google/uuid)
+[logrus](https://github.com/sirupsen/logrus)
+[ssh](https://github.com/crypto/ssh)
