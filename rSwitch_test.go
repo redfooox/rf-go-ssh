@@ -1,6 +1,7 @@
 package rSwitch
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -44,5 +45,29 @@ func TestNewSwitchConnectPasswordError(t *testing.T) {
 	if err != nil {
 		t.Error("Switch对象初始化失败")
 	}
+
+}
+
+// 测试多线程连接ssh
+func TestNewGoSwitchRunCommands(t *testing.T) {
+
+	switchsInfo := [...]map[string]string{
+		{"ip": "10.138.152.205", "port": "22", "username": "admin", "password": "huawei@123", "cmds": "dis power"},
+		{"ip": "10.138.152.205", "port": "22", "username": "admin", "password": "huawei@123", "cmds": "dis int d"},
+	}
+	for _, switchInfo := range switchsInfo {
+		wg.Add(1)
+
+		go func(switchInfo map[string]string) {
+
+			_, err := NewGoSwitchRunCommands(switchInfo["ip"], switchInfo["port"], switchInfo["username"], switchInfo["password"], switchInfo["cmds"])
+			//_,err := NewGoSwitchRunCommands(ip, port, username,password, cmds...)
+
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+		}(switchInfo)
+	}
+	wg.Wait() // 阻塞至所有线程执行完毕
 
 }

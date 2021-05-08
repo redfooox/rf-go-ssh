@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -114,6 +115,29 @@ func NewSwitchConnect(ip, port, username, password string) (*Switch, error) {
 	sw.Logger.WithFields(logFields).Info("[end|success]设备连接")
 
 	return &sw, nil
+
+}
+
+// 创建并发连接会话，并执行命令
+var wg sync.WaitGroup // 定义一个同步等待组，用于
+func NewGoSwitchRunCommands(ip, port, username, password string, cmds ...string) ([]string, error) {
+	sw, err := NewSwitchConnect(ip, port, username, password)
+	if err != nil {
+		log.WithFields(log.Fields{"ip": ip, "username": username}).Error("设备连接失败")
+		wg.Done() // 减去一个计数
+		return nil, err
+	}
+
+	// 执行命令
+	_, outputList, err := sw.RunCommands(cmds...)
+	if err != nil {
+		log.WithFields(log.Fields{"ip": ip, "username": username}).Errorf("设备命令执行失败%s", cmds)
+		wg.Done() //减去一个计数
+		return []string{}, err
+	}
+
+	wg.Done() //减去一个计数
+	return outputList, nil
 
 }
 
