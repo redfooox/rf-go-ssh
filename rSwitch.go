@@ -118,9 +118,11 @@ func NewSwitchConnect(ip, port, username, password string) (*Switch, error) {
 
 }
 
-// 创建并发连接会话，并执行命令
-var wg sync.WaitGroup // 定义一个同步等待组，用于
-func newGoSwitchRunCommands(switchInfo map[string]string, cmds ...string) ([]string, error) {
+// Wg 定义一个同步等待组，用于多线程执行命令
+var Wg sync.WaitGroup
+
+// NewGoSwitchRunCommands 创建并发连接会话，并执行命令
+func NewGoSwitchRunCommands(switchInfo map[string]string, cmds ...string) ([]string, error) {
 	ip := switchInfo["ip"]
 	port := switchInfo["port"]
 	username := switchInfo["username"]
@@ -128,29 +130,29 @@ func newGoSwitchRunCommands(switchInfo map[string]string, cmds ...string) ([]str
 	sw, err := NewSwitchConnect(ip, port, username, password)
 	if err != nil {
 		log.WithFields(log.Fields{"ip": ip, "username": username}).Error("设备连接失败")
-		wg.Done() // 减去一个计数
+		Wg.Done() // 减去一个计数
 		return nil, err
 	}
 	// 执行命令
 	_, outputList, err := sw.RunCommands(cmds...)
 	if err != nil {
 		log.WithFields(log.Fields{"ip": ip, "username": username}).Errorf("设备命令执行失败%s", cmds)
-		wg.Done() //减去一个计数
+		Wg.Done() //减去一个计数
 		return []string{}, err
 	}
 
-	wg.Done() //减去一个计数
+	Wg.Done() //减去一个计数
 	return outputList, nil
 
 }
 
-// GoSwitchRunCommands 并发执行命令
-func GoSwitchRunCommands(switchInfo map[string]string, cmds ...string) {
-	wg.Add(1) // 增加一个计数
+// goSwitchRunCommands 并发执行命令
+func goSwitchRunCommands(switchInfo map[string]string, cmds ...string) {
+	Wg.Add(1) // 增加一个计数
 	go func(switchInfo map[string]string, cmds ...string) {
-		_, _ = newGoSwitchRunCommands(switchInfo, cmds...)
+		_, _ = NewGoSwitchRunCommands(switchInfo, cmds...)
 	}(switchInfo, cmds...)
-	wg.Wait() // 等待执行完成在结束程序
+	Wg.Wait() // 等待执行完成在结束程序
 }
 
 // createClientSession 创建客户端会话

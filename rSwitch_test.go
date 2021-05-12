@@ -55,8 +55,8 @@ func TestNewGoSwitchRunCommands(t *testing.T) {
 		{"ip": "10.138.152.205", "port": "22", "username": "admin", "password": "huawei@123", "cmds": "dis int d"},
 	}
 	for _, switchInfo := range switchsInfo {
-		GoSwitchRunCommands(switchInfo, switchInfo["cmds"], switchInfo["cmds"])
+		goSwitchRunCommands(switchInfo, switchInfo["cmds"], switchInfo["cmds"])
 	}
-	wg.Wait() // 阻塞至所有线程执行完毕
+	Wg.Wait() // 阻塞至所有线程执行完毕
 
 }
